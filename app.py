@@ -94,6 +94,13 @@ with st.sidebar:
         placeholder="APIキーを入力",
     )
 
+    st.subheader("あなたのプロフィール")
+    user_profile = st.text_area(
+        "自己紹介・スキル・経験など（提案文に反映されます）",
+        placeholder="例: Webデザイン歴5年。LP・バナー制作を中心に、WordPressのカスタマイズも対応可能。レスポンシブデザインが得意です。",
+        height=140,
+    )
+
 # ======================================================================
 # メインエリア
 # ======================================================================
@@ -332,6 +339,7 @@ with tab3:
                             provider=provider,
                             api_key=api_key,
                             progress_cb=gen_progress,
+                            profile=user_profile,
                         )
                         st.session_state.proposals_done = True
                         st.success(f"{len(passed_results)} 件の提案文を生成しました。")
@@ -353,7 +361,7 @@ with tab3:
                         if api_key:
                             if st.button("この案件の提案文を生成", key=f"gen1_{i}"):
                                 with st.spinner("生成中..."):
-                                    r["proposal"] = generate_proposal(job, provider, api_key)
+                                    r["proposal"] = generate_proposal(job, provider, api_key, user_profile)
                                     st.session_state.proposals_done = True
                                 st.rerun()
                         else:
@@ -362,7 +370,7 @@ with tab3:
                         st.error(f"生成エラー: {p['error']}")
                         if api_key and st.button("再試行", key=f"retry_{i}"):
                             with st.spinner("再生成中..."):
-                                r["proposal"] = generate_proposal(job, provider, api_key)
+                                r["proposal"] = generate_proposal(job, provider, api_key, user_profile)
                             st.rerun()
                     else:
                         st.caption(f"テンプレート: {p.get('template_name', '')}")
@@ -377,7 +385,7 @@ with tab3:
 
                         if api_key and st.button("再生成", key=f"regen_{i}"):
                             with st.spinner("再生成中..."):
-                                r["proposal"] = generate_proposal(job, provider, api_key)
+                                r["proposal"] = generate_proposal(job, provider, api_key, user_profile)
                             st.rerun()
 
             # ループの外：Excel ダウンロード

@@ -14,16 +14,24 @@ def _job_type_label(job: dict) -> str:
         return "単発案件"
 
 
-def build_prompt(job: dict) -> str:
+def build_prompt(job: dict, profile: str = "") -> str:
     title = job.get("title", "（タイトル不明）")
     description = job.get("description", "（説明なし）")[:2000]
     budget_text = job.get("budget_text", "不明")
     category = job.get("category", "")
     job_type = _job_type_label(job)
 
+    profile_section = ""
+    if profile and profile.strip():
+        profile_section = f"""
+## 応募者のプロフィール
+{profile.strip()}
+
+"""
+
     return f"""あなたはクラウドワークスで採用率の高いフリーランサーです。
 以下の募集要項を熟読し、クライアントが求めていることに正確に応えた提案文を書いてください。
-
+{profile_section}
 ## 募集要項
 タイトル: {title}
 カテゴリ: {category}
@@ -36,16 +44,17 @@ def build_prompt(job: dict) -> str:
 1. 募集要項に書かれている具体的な要件・課題・キーワードを必ず盛り込む
 2. 「この案件にしか使えない内容」にする。他の案件に流用できる汎用文は書かない
 3. クライアントが気にしているポイント（納期・品質・スキル・コミュニケーションなど）を要項から読み取り、それに直接答える
-4. 文字数は250〜400文字
-5. 冒頭は「○○様」（○○はカテゴリや業種に合った自然な敬称）
-6. 末尾に「[お名前]」と記載
-7. 提案文の本文のみ出力（説明・コメント・補足は不要）
+4. プロフィールが提供されている場合は、その人の実際のスキルや経験を自然に盛り込む
+5. 文字数は250〜400文字
+6. 冒頭は「○○様」（○○はカテゴリや業種に合った自然な敬称）
+7. 末尾に「[お名前]」と記載
+8. 提案文の本文のみ出力（説明・コメント・補足は不要）
 
 提案文:""".strip()
 
 
-def generate_proposal(job: dict, provider: str, api_key: str) -> dict:
-    prompt = build_prompt(job)
+def generate_proposal(job: dict, provider: str, api_key: str, profile: str = "") -> dict:
+    prompt = build_prompt(job, profile)
     job_type = _job_type_label(job)
 
     try:
@@ -136,7 +145,7 @@ def _call_openai(prompt: str, api_key: str) -> str:
 
 
 def generate_all_proposals(scored_results: list, provider: str, api_key: str,
-                            progress_cb=None) -> list:
+                            progress_cb=None, profile: str = "") -> list:
     passed = [r for r in scored_results if r["scoring"]["passed"]]
     total = len(passed)
 
@@ -144,6 +153,6 @@ def generate_all_proposals(scored_results: list, provider: str, api_key: str,
         job = result["job"]
         if progress_cb:
             progress_cb(f"提案文生成中 ({i + 1}/{total}): {job.get('title', '')[:30]}...")
-        result["proposal"] = generate_proposal(job, provider, api_key)
+        result["proposal"] = generate_proposal(job, provider, api_key, profile)
 
     return scored_results
