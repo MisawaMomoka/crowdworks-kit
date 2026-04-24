@@ -1,0 +1,10 @@
+config.yaml
+*.log
+__pycache__/
+*.pyc
+.env
+debug*.py
+debug*.html
+*.json
+scraper_thread.log
+search_result.html
