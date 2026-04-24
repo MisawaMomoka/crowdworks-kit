@@ -33,7 +33,16 @@ class CrowdWorksScraper:
         self.playwright = sync_playwright().start()
         self.browser = self.playwright.chromium.launch(
             headless=True,
-            args=["--no-sandbox", "--disable-dev-shm-usage"],
+            args=[
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+                "--disable-gpu",
+                "--single-process",
+                "--no-zygote",
+                "--disable-setuid-sandbox",
+                "--disable-extensions",
+                "--disable-background-networking",
+            ],
         )
         context = self.browser.new_context(
             user_agent=(
