@@ -5,19 +5,7 @@ Streamlit アプリ メインファイル
 ローカル起動: streamlit run app.py
 """
 
-import subprocess, sys, os, glob
-
-# Playwright ブラウザバイナリの存在を確認し、なければインストール
-_pw_cache = os.path.expanduser("~/.cache/ms-playwright")
-_chromium_found = bool(
-    glob.glob(f"{_pw_cache}/chromium*/chrome-linux*/chrome") +
-    glob.glob(f"{_pw_cache}/chromium_headless_shell*/chrome-headless-shell-linux64/chrome-headless-shell")
-)
-if not _chromium_found:
-    subprocess.run(
-        [sys.executable, "-m", "playwright", "install", "chromium"],
-        check=False
-    )
+import os
 
 import streamlit as st
 from scraper import run_scraping
