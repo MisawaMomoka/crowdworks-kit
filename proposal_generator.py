@@ -3,113 +3,50 @@ proposal_generator.py - AI提案文生成モジュール
 Gemini（デフォルト）/ Claude / OpenAI に対応
 """
 
-TEMPLATE_ONGOING = """\
-○○様
 
-◯◯と申します。
-「【案件名】」を拝見しました。継続的にお手伝いできる方を
-探されているとのこと、ぜひご応募させてください。
-
-【継続案件としての強み】
-・週5日、毎日安定稼働が可能です
-・連絡はいつでもレスポンス可能です
-・長期でじっくりお付き合いさせていただきたいと考えています
-
-【類似業務の経験】
-過去に類似業務を継続させていただいた経験があります。
-（実績がない場合は「長期での貢献をお約束します」でOK）
-
-末長くお付き合いさせていただけたら嬉しいです。
-よろしくお願いいたします。
-"""
-
-TEMPLATE_SPOT = """\
-○○様
-
-◯◯と申します。
-「【案件名】」について、私の経験が活かせる内容でしたのでご応募いたしました。
-
-【納品までの流れ提案】
-1. 着手後、迅速に下書きを提出
-2. ご確認後、1日以内に修正対応
-3. 合意した期日までに最終納品
-
-【類似業務の実績】
-過去に類似のご依頼を納品しております。
-（実績がない場合は省略OK）
-
-【お見積もり】
-今回の業務、ご提示の予算で対応可能です。
-
-ご検討のほど、よろしくお願いいたします。
-"""
-
-TEMPLATE_BEGINNER = """\
-○○様
-
-はじめまして、◯◯と申します。
-「【案件名】」を拝見し、ぜひお力になりたくご応募いたしました。
-
-【ご応募の理由】
-今回の業務内容は、私が普段から取り組んでいる作業と近く、
-自分のスキルが活かせると感じました。
-
-【お約束できること】
-・連絡のレスポンスは迅速に対応します
-・納期は必ず守ります
-・分からない部分は早めにご相談します
-
-未経験ジャンルではありますが、丁寧に取り組ませていただきます。
-ご検討よろしくお願いいたします。
-"""
-
-
-def select_template(job: dict) -> tuple:
+def _job_type_label(job: dict) -> str:
     text = job.get("title", "") + job.get("description", "")
     if job.get("is_ongoing") or any(kw in text for kw in ["継続", "長期", "定期"]):
-        return "継続案件向け", TEMPLATE_ONGOING
+        return "継続・長期案件"
     elif any(kw in text for kw in ["初めて", "未経験歓迎", "初心者"]):
-        return "未経験ジャンル向け", TEMPLATE_BEGINNER
+        return "初心者歓迎案件"
     else:
-        return "単発スポット向け", TEMPLATE_SPOT
+        return "単発案件"
 
 
-def build_prompt(job: dict, template_name: str, template: str) -> str:
+def build_prompt(job: dict) -> str:
     title = job.get("title", "（タイトル不明）")
-    description = job.get("description", "（説明なし）")[:1500]
+    description = job.get("description", "（説明なし）")[:2000]
     budget_text = job.get("budget_text", "不明")
-    is_ongoing = job.get("is_ongoing", False)
     category = job.get("category", "")
+    job_type = _job_type_label(job)
 
-    return f"""
-あなたはクラウドワークスで案件を獲得するための提案文を書くライターです。
-以下の案件情報とテンプレートを参考に、採用されやすい提案文を日本語で作成してください。
+    return f"""あなたはクラウドワークスで採用率の高いフリーランサーです。
+以下の募集要項を熟読し、クライアントが求めていることに正確に応えた提案文を書いてください。
 
-## 案件情報
-- タイトル: {title}
-- カテゴリ: {category}
-- 報酬: {budget_text}
-- 継続案件: {"はい" if is_ongoing else "いいえ"}
-- 案件説明:
+## 募集要項
+タイトル: {title}
+カテゴリ: {category}
+報酬: {budget_text}
+案件種別: {job_type}
+依頼内容:
 {description}
 
-## 使用するテンプレート（{template_name}）
-{template}
+## 提案文の絶対ルール
+1. 募集要項に書かれている具体的な要件・課題・キーワードを必ず盛り込む
+2. 「この案件にしか使えない内容」にする。他の案件に流用できる汎用文は書かない
+3. クライアントが気にしているポイント（納期・品質・スキル・コミュニケーションなど）を要項から読み取り、それに直接答える
+4. 文字数は250〜400文字
+5. 冒頭は「○○様」（○○はカテゴリや業種に合った自然な敬称）
+6. 末尾に「[お名前]」と記載
+7. 提案文の本文のみ出力（説明・コメント・補足は不要）
 
-## 作成ルール
-1. テンプレートの構造を守りつつ、この案件に合わせてカスタマイズする
-2. プレースホルダー（◯◯、△△）は案件に合った具体的な内容に書き換える
-3. 応募者の名前は「[お名前]」のままにしておく
-4. 文字数は250〜400文字を目安にする
-5. 提案文の本文だけを出力する（説明・コメント不要）
-
-提案文:
-""".strip()
+提案文:""".strip()
 
 
 def generate_proposal(job: dict, provider: str, api_key: str) -> dict:
-    template_name, template = select_template(job)
-    prompt = build_prompt(job, template_name, template)
+    prompt = build_prompt(job)
+    job_type = _job_type_label(job)
 
     try:
         if provider == "gemini":
@@ -122,14 +59,14 @@ def generate_proposal(job: dict, provider: str, api_key: str) -> dict:
             raise ValueError(f"未対応のプロバイダー: {provider}")
 
         return {
-            "template_name": template_name,
+            "template_name": job_type,
             "proposal": proposal.strip(),
             "provider": provider,
             "error": None,
         }
     except Exception as e:
         return {
-            "template_name": template_name,
+            "template_name": job_type,
             "proposal": "",
             "provider": provider,
             "error": str(e),
