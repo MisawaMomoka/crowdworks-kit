@@ -8,6 +8,7 @@ Streamlit アプリ メインファイル
 import os
 
 import streamlit as st
+import yaml
 from scraper import run_scraping
 from scorer import score_all_jobs
 from proposal_generator import generate_all_proposals, generate_proposal
@@ -15,6 +16,36 @@ import pandas as pd
 import io
 import threading
 from streamlit.runtime.scriptrunner import add_script_run_ctx, get_script_run_ctx
+
+# ======================================================================
+# 設定ファイル読み書き
+# ======================================================================
+
+CONFIG_PATH = os.path.join(os.path.dirname(__file__), "config.yaml")
+
+def _load_config() -> dict:
+    default = {
+        "crowdworks": {"email": "", "password": "", "keywords": [], "max_pages": 2},
+        "ai": {"provider": "gemini", "gemini_api_key": "", "claude_api_key": "", "openai_api_key": ""},
+        "scoring": {"threshold": 15},
+        "profile": "",
+    }
+    if os.path.exists(CONFIG_PATH):
+        try:
+            with open(CONFIG_PATH, "r", encoding="utf-8") as f:
+                loaded = yaml.safe_load(f) or {}
+            for section in default:
+                if isinstance(default[section], dict):
+                    default[section].update(loaded.get(section, {}))
+                else:
+                    default[section] = loaded.get(section, default[section])
+        except Exception:
+            pass
+    return default
+
+def _save_config(config: dict):
+    with open(CONFIG_PATH, "w", encoding="utf-8") as f:
+        yaml.dump(config, f, allow_unicode=True, default_flow_style=False)
 
 # ======================================================================
 # ページ設定
@@ -56,40 +87,127 @@ if "scored_results" not in st.session_state:
 if "proposals_done" not in st.session_state:
     st.session_state.proposals_done = False
 
+
+# ======================================================================
+# Excel 出力ユーティリティ
+# ======================================================================
+
+def _to_excel(scored_results: list, include_proposals: bool = False) -> bytes:
+    rows = []
+    for r in scored_results:
+        job = r["job"]
+        sc = r["scoring"]
+        p = r.get("proposal", {})
+        row = {
+            "合否": "合格" if sc["passed"] else "除外",
+            "合計スコア": f"{sc['total']}/20",
+            "タイトル": job.get("title", ""),
+            "URL": job.get("url", ""),
+            "報酬": job.get("budget_text", ""),
+            "継続案件": "継続" if job.get("is_ongoing") else "単発",
+            "CL評価": job.get("client_rating", ""),
+            "時給スコア": f"{sc['scores']['時給']}/4",
+            "継続性スコア": f"{sc['scores']['継続性']}/4",
+            "CL評価スコア": f"{sc['scores']['クライアント評価']}/4",
+            "スキルスコア": f"{sc['scores']['スキル習得度']}/4",
+            "精神コストスコア": f"{sc['scores']['精神コスト']}/4",
+            "検索キーワード": job.get("search_keyword", ""),
+        }
+        if include_proposals:
+            row["テンプレート"] = p.get("template_name", "") if p else ""
+            row["提案文"] = p.get("proposal", "") if p else ""
+        rows.append(row)
+
+    df = pd.DataFrame(rows)
+    buf = io.BytesIO()
+
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="案件一覧")
+        ws = writer.sheets["案件一覧"]
+
+        from openpyxl.styles import PatternFill, Font, Alignment
+        green = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+        red = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
+        bold = Font(bold=True)
+        wrap = Alignment(wrap_text=True, vertical="top")
+
+        for cell in ws[1]:
+            cell.font = bold
+
+        for row_idx, r in enumerate(scored_results, start=2):
+            fill = green if r["scoring"]["passed"] else red
+            for col_idx in range(1, len(df.columns) + 1):
+                cell = ws.cell(row=row_idx, column=col_idx)
+                cell.fill = fill
+                cell.alignment = wrap
+
+        # 列幅
+        col_widths = {"A": 8, "B": 10, "C": 40, "D": 50, "E": 15,
+                      "F": 10, "G": 10, "H": 10, "I": 10, "J": 10,
+                      "K": 10, "L": 12, "M": 15, "N": 20, "O": 80}
+        for col, w in col_widths.items():
+            ws.column_dimensions[col].width = w
+
+    buf.seek(0)
+    return buf.read()
+
+
 # ======================================================================
 # サイドバー
 # ======================================================================
+
+config = _load_config()
 
 with st.sidebar:
     st.title("設定")
 
     st.subheader("クラウドワークス ログイン情報")
-    cw_email = st.text_input("メールアドレス", placeholder="example@gmail.com")
-    cw_password = st.text_input("パスワード", type="password")
+    cw_email = st.text_input(
+        "メールアドレス",
+        value=config["crowdworks"].get("email", ""),
+        placeholder="example@gmail.com",
+    )
+    cw_password = st.text_input(
+        "パスワード",
+        value=config["crowdworks"].get("password", ""),
+        type="password",
+    )
 
     st.subheader("検索キーワード")
+    saved_keywords = config["crowdworks"].get("keywords", [])
     keywords_str = st.text_area(
         "1行に1キーワード",
-        value="データ入力\nメール返信代行\n継続案件\n事務",
+        value="\n".join(saved_keywords) if saved_keywords else "データ入力\nメール返信代行\n継続案件\n事務",
         height=110,
     )
     keywords = [k.strip() for k in keywords_str.splitlines() if k.strip()]
 
-    max_pages = st.slider("各キーワードの取得ページ数", 1, 10, 2)
-    threshold = st.slider("提案文を生成するスコア閾値", 10, 20, 15)
+    max_pages = st.slider(
+        "各キーワードの取得ページ数", 1, 10,
+        value=config["crowdworks"].get("max_pages", 2),
+    )
+    threshold = st.slider(
+        "提案文を生成するスコア閾値", 10, 20,
+        value=config["scoring"].get("threshold", 15),
+    )
 
     st.subheader("AI設定")
+    providers = ["gemini", "claude", "openai"]
+    saved_provider = config["ai"].get("provider", "gemini")
     provider = st.selectbox(
         "AIプロバイダー",
-        ["gemini", "claude", "openai"],
+        providers,
+        index=providers.index(saved_provider) if saved_provider in providers else 0,
         format_func=lambda x: {
             "gemini": "Gemini（無料枠あり）",
             "claude": "Claude",
             "openai": "OpenAI GPT-4o mini",
         }[x],
     )
+    api_key_map = {"gemini": "gemini_api_key", "claude": "claude_api_key", "openai": "openai_api_key"}
     api_key = st.text_input(
         f"{provider.upper()} APIキー",
+        value=config["ai"].get(api_key_map[provider], ""),
         type="password",
         placeholder="APIキーを入力",
     )
@@ -97,9 +215,23 @@ with st.sidebar:
     st.subheader("あなたのプロフィール")
     user_profile = st.text_area(
         "自己紹介・スキル・経験など（提案文に反映されます）",
+        value=config.get("profile", ""),
         placeholder="例: Webデザイン歴5年。LP・バナー制作を中心に、WordPressのカスタマイズも対応可能。レスポンシブデザインが得意です。",
         height=140,
     )
+
+    st.divider()
+    if st.button("設定を保存", type="primary", use_container_width=True):
+        config["crowdworks"]["email"] = cw_email
+        config["crowdworks"]["password"] = cw_password
+        config["crowdworks"]["keywords"] = keywords
+        config["crowdworks"]["max_pages"] = max_pages
+        config["ai"]["provider"] = provider
+        config["ai"][api_key_map[provider]] = api_key
+        config["scoring"]["threshold"] = threshold
+        config["profile"] = user_profile
+        _save_config(config)
+        st.success("設定を保存しました！")
 
 # ======================================================================
 # メインエリア
@@ -399,67 +531,3 @@ with tab3:
                     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                     key="dl_prop_file",
                 )
-
-
-# ======================================================================
-# Excel 出力ユーティリティ
-# ======================================================================
-
-def _to_excel(scored_results: list, include_proposals: bool = False) -> bytes:
-    rows = []
-    for r in scored_results:
-        job = r["job"]
-        sc = r["scoring"]
-        p = r.get("proposal", {})
-        row = {
-            "合否": "合格" if sc["passed"] else "除外",
-            "合計スコア": f"{sc['total']}/20",
-            "タイトル": job.get("title", ""),
-            "URL": job.get("url", ""),
-            "報酬": job.get("budget_text", ""),
-            "継続案件": "継続" if job.get("is_ongoing") else "単発",
-            "CL評価": job.get("client_rating", ""),
-            "時給スコア": f"{sc['scores']['時給']}/4",
-            "継続性スコア": f"{sc['scores']['継続性']}/4",
-            "CL評価スコア": f"{sc['scores']['クライアント評価']}/4",
-            "スキルスコア": f"{sc['scores']['スキル習得度']}/4",
-            "精神コストスコア": f"{sc['scores']['精神コスト']}/4",
-            "検索キーワード": job.get("search_keyword", ""),
-        }
-        if include_proposals:
-            row["テンプレート"] = p.get("template_name", "") if p else ""
-            row["提案文"] = p.get("proposal", "") if p else ""
-        rows.append(row)
-
-    df = pd.DataFrame(rows)
-    buf = io.BytesIO()
-
-    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-        df.to_excel(writer, index=False, sheet_name="案件一覧")
-        ws = writer.sheets["案件一覧"]
-
-        from openpyxl.styles import PatternFill, Font, Alignment
-        green = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
-        red = PatternFill(start_color="FFC7CE", end_color="FFC7CE", fill_type="solid")
-        bold = Font(bold=True)
-        wrap = Alignment(wrap_text=True, vertical="top")
-
-        for cell in ws[1]:
-            cell.font = bold
-
-        for row_idx, r in enumerate(scored_results, start=2):
-            fill = green if r["scoring"]["passed"] else red
-            for col_idx in range(1, len(df.columns) + 1):
-                cell = ws.cell(row=row_idx, column=col_idx)
-                cell.fill = fill
-                cell.alignment = wrap
-
-        # 列幅
-        col_widths = {"A": 8, "B": 10, "C": 40, "D": 50, "E": 15,
-                      "F": 10, "G": 10, "H": 10, "I": 10, "J": 10,
-                      "K": 10, "L": 12, "M": 15, "N": 20, "O": 80}
-        for col, w in col_widths.items():
-            ws.column_dimensions[col].width = w
-
-    buf.seek(0)
-    return buf.read()
