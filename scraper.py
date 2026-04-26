@@ -133,6 +133,19 @@ class CrowdWorksScraper:
         page_html = self.page.content()
         return _parse_job_detail(page_html, url)
 
+    # ------------------------------------------------------------------
+    # クライアント評価のみ取得（詳細ページから）
+    # ------------------------------------------------------------------
+
+    def get_client_rating(self, url: str) -> float | None:
+        try:
+            self.page.goto(url, wait_until="domcontentloaded", timeout=15000)
+            time.sleep(0.8)
+            page_html = self.page.content()
+            return _extract_client_rating(page_html)
+        except Exception:
+            return None
+
 
 # ======================================================================
 # HTML パース関数（Playwright から取得した内容を解析）
@@ -244,6 +257,29 @@ def _parse_jobs_from_html(page_html: str, keyword: str) -> list:
     return jobs
 
 
+def _extract_client_rating(page_html: str) -> float | None:
+    """詳細ページHTMLから「総合評価 X.X」のクライアント評価を抽出する"""
+    page_text = html_module.unescape(page_html)
+
+    # パターン1: 「総合評価」の直後にある数値
+    m = re.search(r'総合評価\s*(\d+\.\d+)', page_text)
+    if m:
+        val = float(m.group(1))
+        if 1.0 <= val <= 5.0:
+            return val
+
+    # パターン2: 「総合評価」の近く（50文字以内）にある数値
+    m = re.search(r'総合評価(.{0,50})', page_text)
+    if m:
+        m2 = re.search(r'(\d+\.\d+)', m.group(1))
+        if m2:
+            val = float(m2.group(1))
+            if 1.0 <= val <= 5.0:
+                return val
+
+    return None
+
+
 def _parse_job_detail(page_html: str, url: str) -> dict:
     """案件詳細ページを解析して情報を返す"""
     from bs4 import BeautifulSoup
@@ -270,13 +306,7 @@ def _parse_job_detail(page_html: str, url: str) -> dict:
     detail["is_ongoing"] = any(kw in page_text for kw in ["継続", "長期", "定期", "毎月", "毎週"])
 
     # クライアント評価
-    rating = None
-    for m in re.finditer(r"(\d+\.\d+)", page_text):
-        val = float(m.group(1))
-        if 1.0 <= val <= 5.0:
-            rating = val
-            break
-    detail["client_rating"] = rating
+    detail["client_rating"] = _extract_client_rating(page_html)
     detail["client_name"] = ""
     detail["category"] = ""
 
@@ -335,7 +365,16 @@ def run_scraping(email: str, password: str, keywords: list,
             basic_jobs = scraper.search_jobs(keywords, max_pages, progress_cb)
             log(f"案件一覧取得完了: {len(basic_jobs)} 件")
 
-            # 検索ページの JSON から十分なデータが取れているので詳細ページ取得は不要
+            # 各案件の詳細ページからクライアント評価を取得
+            total = len(basic_jobs)
+            for idx, job in enumerate(basic_jobs):
+                if progress_cb:
+                    progress_cb(f"クライアント評価を取得中... ({idx + 1}/{total})")
+                rating = scraper.get_client_rating(job["url"])
+                if rating is not None:
+                    job["client_rating"] = rating
+                time.sleep(0.5)
+
             results.extend(basic_jobs)
             if progress_cb:
                 progress_cb(f"{len(basic_jobs)} 件取得完了。スコアリングへ...")
