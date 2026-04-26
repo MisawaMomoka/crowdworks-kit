@@ -321,13 +321,51 @@ def _parse_job_detail(page_html: str, url: str) -> dict:
 # Streamlit から呼び出す関数（Windows ProactorEventLoop 対応）
 # ======================================================================
 
+def _preliminary_score(job: dict) -> int:
+    """クライアント評価なしで仮スコアを算出する（高速な事前フィルタ用）"""
+    score = 0
+    text = job.get("title", "") + job.get("description", "")
+    budget = job.get("budget", 0)
+
+    # 時給（簡易）
+    if budget >= 50000:
+        score += 4
+    elif budget >= 20000:
+        score += 3
+    elif budget >= 5000:
+        score += 2
+    elif budget > 0:
+        score += 1
+
+    # 継続性
+    if job.get("is_ongoing") or any(kw in text for kw in ["継続", "長期", "定期", "毎月", "毎週"]):
+        score += 4
+
+    # スキル習得度（簡易）
+    high_skills = ["プログラミング", "デザイン", "開発", "マーケティング", "SEO", "動画編集", "ライティング", "Python", "WordPress"]
+    mid_skills = ["ライター", "記事", "ブログ", "編集", "事務", "Excel", "リサーチ"]
+    if any(kw in text for kw in high_skills):
+        score += 4
+    elif any(kw in text for kw in mid_skills):
+        score += 3
+    else:
+        score += 2
+
+    # 精神コスト（簡易）
+    red_flags = ["即日", "急ぎ", "緊急", "修正無制限", "無料", "テスト", "格安"]
+    flag_count = sum(1 for kw in red_flags if kw in text)
+    score += max(0, 4 - flag_count)
+
+    return score
+
+
 def run_scraping(email: str, password: str, keywords: list,
                  max_pages: int = 3, progress_cb=None,
-                 max_detail_fetch: int = 30) -> list:
+                 threshold: int = 15) -> list:
     """
     案件を収集して詳細リストを返す
     Windows + Python 3.12 対応: スレッド内で ProactorEventLoop を設定
-    max_detail_fetch: 詳細取得の上限数（多すぎるとタイムアウトするため）
+    threshold: スコア閾値（クライアント評価の詳細取得を絞り込むために使用）
     """
     import sys
     import asyncio
@@ -348,8 +386,6 @@ def run_scraping(email: str, password: str, keywords: list,
         scraper = CrowdWorksScraper()
         try:
             if sys.platform == "win32":
-                # ポリシーごと変更しないと Playwright 内部の new_event_loop() が
-                # SelectorEventLoop を作ってしまい subprocess が使えなくなる
                 asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
                 loop = asyncio.ProactorEventLoop()
                 asyncio.set_event_loop(loop)
@@ -369,15 +405,29 @@ def run_scraping(email: str, password: str, keywords: list,
             basic_jobs = scraper.search_jobs(keywords, max_pages, progress_cb)
             log(f"案件一覧取得完了: {len(basic_jobs)} 件")
 
-            # 各案件の詳細ページからクライアント評価を取得
-            total = len(basic_jobs)
-            for idx, job in enumerate(basic_jobs):
+            # 仮スコアで絞り込み、合格圏内の案件だけ詳細ページにアクセス
+            # クライアント評価は最大+3点（None=1点 → 満点=4点）なので
+            # 仮スコア >= (閾値 - 3) の案件だけ詳細を取得する
+            min_preliminary = max(0, threshold - 3)
+            candidates = []
+            for job in basic_jobs:
+                pre_score = _preliminary_score(job)
+                if pre_score >= min_preliminary:
+                    candidates.append(job)
+
+            if progress_cb:
+                progress_cb(
+                    f"{len(basic_jobs)} 件中 {len(candidates)} 件が合格圏内。"
+                    f"クライアント評価を取得中..."
+                )
+
+            for idx, job in enumerate(candidates):
                 if progress_cb:
-                    progress_cb(f"クライアント評価を取得中... ({idx + 1}/{total})")
+                    progress_cb(f"クライアント評価を取得中... ({idx + 1}/{len(candidates)})")
                 rating = scraper.get_client_rating(job["url"])
                 if rating is not None:
                     job["client_rating"] = rating
-                time.sleep(0.5)
+                time.sleep(0.3)
 
             results.extend(basic_jobs)
             if progress_cb:

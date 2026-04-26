@@ -191,6 +191,7 @@ with tab1:
                         keywords=keywords,
                         max_pages=max_pages,
                         progress_cb=update_progress,
+                        threshold=threshold,
                     )
 
                     progress_bar.progress(50)

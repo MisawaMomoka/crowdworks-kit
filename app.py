@@ -288,6 +288,7 @@ with tab1:
                         keywords=keywords,
                         max_pages=max_pages,
                         progress_cb=update,
+                        threshold=threshold,
                     )
                     update(f"{len(jobs)} 件を取得しました。スコアリング中...")
 
