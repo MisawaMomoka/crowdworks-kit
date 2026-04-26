@@ -259,17 +259,21 @@ def _parse_jobs_from_html(page_html: str, keyword: str) -> list:
 
 def _extract_client_rating(page_html: str) -> float | None:
     """詳細ページHTMLから「総合評価 X.X」のクライアント評価を抽出する"""
-    page_text = html_module.unescape(page_html)
+    from bs4 import BeautifulSoup
 
-    # パターン1: 「総合評価」の直後にある数値
+    # HTMLタグを除去してプレーンテキストにしてから検索
+    soup = BeautifulSoup(page_html, "html.parser")
+    page_text = soup.get_text()
+
+    # パターン1: 「総合評価」の直後にある数値（改行・空白を挟んでもOK）
     m = re.search(r'総合評価\s*(\d+\.\d+)', page_text)
     if m:
         val = float(m.group(1))
         if 1.0 <= val <= 5.0:
             return val
 
-    # パターン2: 「総合評価」の近く（50文字以内）にある数値
-    m = re.search(r'総合評価(.{0,50})', page_text)
+    # パターン2: 「総合評価」の近く（100文字以内）にある数値
+    m = re.search(r'総合評価(.{0,100})', page_text, re.DOTALL)
     if m:
         m2 = re.search(r'(\d+\.\d+)', m.group(1))
         if m2:
