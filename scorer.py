@@ -171,3 +171,16 @@ def score_all_jobs(jobs: list, config: dict = None) -> list:
 def score_bar(score: int, max_score: int = 4) -> str:
     filled = round(score / max_score * 5)
     return "[" + "#" * filled + "-" * (5 - filled) + "]"
+
+
+def get_score_emoji(score: int) -> str:
+    if score >= 4:
+        return "🟢"
+    elif score >= 3:
+        return "🔵"
+    elif score >= 2:
+        return "🟡"
+    elif score >= 1:
+        return "🟠"
+    else:
+        return "🔴"

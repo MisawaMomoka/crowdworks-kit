@@ -85,11 +85,20 @@ with st.sidebar:
 
     st.subheader("🔍 検索キーワード")
     keywords_str = st.text_area(
-        "1行に1キーワード",
+        "1行に1キーワード（スペース区切りで複数単語OK）",
         value="\n".join(config["crowdworks"]["keywords"]),
         height=120,
+        help="例：「データ入力 在宅」のようにスペースで区切ると、両方を含む案件だけに絞り込めます",
     )
     keywords = [k.strip() for k in keywords_str.split("\n") if k.strip()]
+
+    exclude_str = st.text_input(
+        "除外キーワード（スペース区切り）",
+        value=" ".join(config["crowdworks"].get("exclude_keywords", [])),
+        placeholder="例: 急募 格安 テスト",
+        help="ここに入力した単語を含む案件を検索結果から除外します",
+    )
+    exclude_keywords = [k.strip() for k in exclude_str.split() if k.strip()]
 
     max_pages = st.slider(
         "各キーワードの取得ページ数",
@@ -130,6 +139,7 @@ with st.sidebar:
         config["crowdworks"]["email"] = cw_email
         config["crowdworks"]["password"] = cw_password
         config["crowdworks"]["keywords"] = keywords
+        config["crowdworks"]["exclude_keywords"] = exclude_keywords
         config["crowdworks"]["max_pages"] = max_pages
         config["ai"]["provider"] = provider
         config["ai"][api_key_map[provider]] = api_key
@@ -192,6 +202,7 @@ with tab1:
                         max_pages=max_pages,
                         progress_cb=update_progress,
                         threshold=threshold,
+                        exclude_keywords=exclude_keywords,
                     )
 
                     progress_bar.progress(50)

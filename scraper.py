@@ -88,9 +88,15 @@ class CrowdWorksScraper:
     # ------------------------------------------------------------------
 
     def search_jobs(self, keywords: list, max_pages: int = 3,
-                    progress_cb=None) -> list:
+                    progress_cb=None, exclude_keywords: list = None) -> list:
         all_jobs = []
         seen_urls = set()
+
+        # 除外キーワードのURLパラメータ
+        exclude_param = ""
+        if exclude_keywords:
+            exc_enc = urllib.parse.quote(" ".join(exclude_keywords))
+            exclude_param = f"&search[exclude_keywords]={exc_enc}"
 
         for keyword in keywords:
             if progress_cb:
@@ -101,6 +107,7 @@ class CrowdWorksScraper:
                 url = (
                     f"{BASE_URL}/public/jobs/search"
                     f"?search[keywords]={kw_enc}&order=new_order&page={page_num}"
+                    f"{exclude_param}"
                 )
 
                 self.page.goto(url, wait_until="networkidle", timeout=20000)
@@ -361,7 +368,7 @@ def _preliminary_score(job: dict) -> int:
 
 def run_scraping(email: str, password: str, keywords: list,
                  max_pages: int = 3, progress_cb=None,
-                 threshold: int = 15) -> list:
+                 threshold: int = 15, exclude_keywords: list = None) -> list:
     """
     案件を収集して詳細リストを返す
     Windows + Python 3.12 対応: スレッド内で ProactorEventLoop を設定
@@ -402,7 +409,7 @@ def run_scraping(email: str, password: str, keywords: list,
 
             if progress_cb:
                 progress_cb("案件一覧を収集中...")
-            basic_jobs = scraper.search_jobs(keywords, max_pages, progress_cb)
+            basic_jobs = scraper.search_jobs(keywords, max_pages, progress_cb, exclude_keywords)
             log(f"案件一覧取得完了: {len(basic_jobs)} 件")
 
             # 仮スコアで絞り込み、合格圏内の案件だけ詳細ページにアクセス

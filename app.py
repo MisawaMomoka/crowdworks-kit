@@ -176,11 +176,21 @@ with st.sidebar:
     st.subheader("検索キーワード")
     saved_keywords = config["crowdworks"].get("keywords", [])
     keywords_str = st.text_area(
-        "1行に1キーワード",
+        "1行に1キーワード（スペース区切りで複数単語OK）",
         value="\n".join(saved_keywords) if saved_keywords else "データ入力\nメール返信代行\n継続案件\n事務",
         height=110,
+        help="例：「データ入力 在宅」のようにスペースで区切ると、両方を含む案件だけに絞り込めます",
     )
     keywords = [k.strip() for k in keywords_str.splitlines() if k.strip()]
+
+    saved_exclude = config["crowdworks"].get("exclude_keywords", [])
+    exclude_str = st.text_input(
+        "除外キーワード（スペース区切り）",
+        value=" ".join(saved_exclude) if saved_exclude else "",
+        placeholder="例: 急募 格安 テスト",
+        help="ここに入力した単語を含む案件を検索結果から除外します",
+    )
+    exclude_keywords = [k.strip() for k in exclude_str.split() if k.strip()]
 
     max_pages = st.slider(
         "各キーワードの取得ページ数", 1, 10,
@@ -225,6 +235,7 @@ with st.sidebar:
         config["crowdworks"]["email"] = cw_email
         config["crowdworks"]["password"] = cw_password
         config["crowdworks"]["keywords"] = keywords
+        config["crowdworks"]["exclude_keywords"] = exclude_keywords
         config["crowdworks"]["max_pages"] = max_pages
         config["ai"]["provider"] = provider
         config["ai"][api_key_map[provider]] = api_key
@@ -250,10 +261,11 @@ with tab1:
 
     col_info, col_btn = st.columns([3, 1])
     with col_info:
-        st.markdown(
-            f"キーワード: **{' / '.join(keywords)}**  "
-            f"&nbsp;&nbsp;閾値: **{threshold}点以上** で提案文生成"
-        )
+        info_text = f"キーワード: **{' / '.join(keywords)}**"
+        if exclude_keywords:
+            info_text += f"  \n除外: **{' / '.join(exclude_keywords)}**"
+        info_text += f"  \n閾値: **{threshold}点以上** で提案文生成"
+        st.markdown(info_text)
     with col_btn:
         run_btn = st.button("リサーチ開始", type="primary", use_container_width=True)
 
@@ -289,6 +301,7 @@ with tab1:
                         max_pages=max_pages,
                         progress_cb=update,
                         threshold=threshold,
+                        exclude_keywords=exclude_keywords,
                     )
                     update(f"{len(jobs)} 件を取得しました。スコアリング中...")
 
